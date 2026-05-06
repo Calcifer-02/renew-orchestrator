@@ -22,8 +22,9 @@ export interface Job {
   job_id: string
   task_id: string
   agent_role: string
+  transition: string           // auto transition that was fired to create this job
+  transition_to_fire: string   // transition agent fires when done
   instructions: string
-  transition_to_fire: string
   status: 'pending' | 'running' | 'done' | 'failed'
   created_at: string
   started_at: string | null

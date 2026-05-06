@@ -6,19 +6,21 @@ All state lives in <project-dir>/orchestration/reports/.
 task.place is ONLY mutated via fire_transition() — never directly.
 
 Public API:
-  get_marking(dirs)                                 → dict[place, [task_id]]
-  get_enabled_transitions(dirs, task_id=None)       → list[transition+eligible_tasks]
-  create_task(dirs, task_id, file, goal)            → task dict  (idempotent)
-  fire_transition(dirs, task_id, transition_id, source="bridge") → task dict
-  get_jobs(dirs)                                    → list[job]
-  complete_agent_job(dirs, job_id, result=None)     → job dict  (idempotent)
-  fail_agent_job(dirs, job_id, reason)              → job dict  (idempotent)
+  get_marking(dirs)
+  get_enabled_transitions(dirs, task_id=None)
+  create_task(dirs, task_id, file, goal)          idempotent
+  fire_transition(dirs, task_id, transition_id, source="bridge")
+  tick(dirs)                                       idempotent orchestrator tick
+  get_jobs(dirs)
+  complete_agent_job(dirs, job_id, result=None)    idempotent
+  fail_agent_job(dirs, job_id, reason)             idempotent
 
-CLI smoke tests:
+CLI:
   python bridge/renew_bridge.py --project-dir PATH marking
   python bridge/renew_bridge.py --project-dir PATH enabled [TASK_ID]
   python bridge/renew_bridge.py --project-dir PATH fire TASK_ID TRANSITION_ID
   python bridge/renew_bridge.py --project-dir PATH add-task TASK_ID FILE GOAL
+  python bridge/renew_bridge.py --project-dir PATH tick
   python bridge/renew_bridge.py --project-dir PATH jobs
   python bridge/renew_bridge.py --project-dir PATH complete-job JOB_ID
   python bridge/renew_bridge.py --project-dir PATH fail-job JOB_ID REASON
@@ -42,8 +44,11 @@ PLACES: list[str] = [
     "DONE", "FAILED", "HUMAN_REVIEW",
 ]
 
-# auto=True  → bridge fires this transition to hand work to an agent
-# auto=False → agent fires this transition when work is complete
+# Transition kinds (derived, not stored):
+#   auto   → bridge/tick fires this; creates agent job
+#   agent  → agent fires this when work is complete (non-auto, non-human)
+#   human  → requires explicit human action (agent_role="human")
+#   tool   → reserved for shell/test execution (kind="tool" marker)
 TRANSITIONS: list[dict] = [
     {"id": "claim_analysis",    "from": ["BACKLOG"],            "to": "READY_FOR_ANALYSIS", "auto": True,  "agent_role": "analyst"},
     {"id": "analysis_finished", "from": ["READY_FOR_ANALYSIS"], "to": "ANALYZED",           "auto": False, "agent_role": "analyst"},
@@ -57,6 +62,8 @@ TRANSITIONS: list[dict] = [
 ]
 
 _TR: dict[str, dict] = {t["id"]: t for t in TRANSITIONS}
+
+_TERMINAL_PLACES = {"DONE", "HUMAN_REVIEW"}
 
 _INSTRUCTIONS: dict[str, str] = {
     "analyst": "Analyze `{file}` — {goal}",
@@ -168,8 +175,25 @@ def _update_marking_md(dirs: ProjectDirs, tasks: list[dict]) -> None:
     ]
     for place in PLACES:
         tokens = marking.get(place, [])
-        lines.append(f"| {place} | {', '.join(tokens) if tokens else '—'} |\n")
+        lines.append(f"| {place} | {', '.join(tokens) if tokens else '-'} |\n")
     dirs.marking_file.write_text("".join(lines), encoding="utf-8")
+
+
+def _transition_kind(tr: dict) -> str:
+    """
+    Classify a transition for tick processing.
+      auto   — bridge fires this (auto=True, non-human)
+      human  — requires explicit human action (agent_role="human")
+      tool   — reserved for shell/test execution (tr["kind"]=="tool")
+      agent  — agent fires this when done (auto=False, non-human)
+    """
+    if tr.get("agent_role") == "human":
+        return "human"
+    if tr.get("kind") == "tool":
+        return "tool"
+    if tr["auto"]:
+        return "auto"
+    return "agent"
 
 
 def _next_non_auto_transition(from_place: str, agent_role: str) -> str | None:
@@ -203,26 +227,28 @@ def _ensure_job(dirs: ProjectDirs, task: dict, tr: dict, jobs: list[dict]) -> di
         goal=task.get("goal", "?"),
     )
     job: dict = {
-        "job_id": str(uuid.uuid4()),
-        "task_id": task["task_id"],
-        "agent_role": role,
-        "instructions": instructions,
-        "transition_to_fire": transition_to_fire,
-        "status": "pending",
-        "created_at": _now(),
-        "started_at": None,
-        "completed_at": None,
-        "result": None,
+        "job_id":            str(uuid.uuid4()),
+        "task_id":           task["task_id"],
+        "agent_role":        role,
+        "transition":        tr["id"],          # auto transition that was fired
+        "transition_to_fire": transition_to_fire,  # transition agent fires when done
+        "instructions":      instructions,
+        "status":            "pending",
+        "created_at":        _now(),
+        "started_at":        None,
+        "completed_at":      None,
+        "result":            None,
     }
     jobs.append(job)
     _save_jobs(dirs, jobs)
     _emit(dirs, {
-        "type": "job_created",
-        "job_id": job["job_id"],
-        "task_id": task["task_id"],
-        "agent_role": role,
+        "type":              "job_created",
+        "job_id":            job["job_id"],
+        "task_id":           task["task_id"],
+        "agent_role":        role,
+        "transition":        tr["id"],
         "transition_to_fire": transition_to_fire,
-        "source": "bridge",
+        "source":            "bridge",
     })
     return job
 
@@ -230,7 +256,7 @@ def _ensure_job(dirs: ProjectDirs, task: dict, tr: dict, jobs: list[dict]) -> di
 # ─── Public API ───────────────────────────────────────────────────────────────
 
 def get_marking(dirs: ProjectDirs) -> dict[str, list[str]]:
-    """Return place → [task_id, ...] for all places."""
+    """Return place -> [task_id, ...] for all places."""
     tasks = _load_tasks(dirs)
     result: dict[str, list[str]] = {p: [] for p in PLACES}
     for t in tasks:
@@ -244,11 +270,11 @@ def get_enabled_transitions(
 ) -> list[dict]:
     """
     Return transitions that can fire now.
-    A transition is enabled when at least one unlocked token is in a source place.
+    A transition is enabled when at least one unlocked token sits in a source place.
     Optionally filter to a specific task.
     """
     tasks = _load_tasks(dirs)
-    jobs = _load_jobs(dirs)
+    jobs  = _load_jobs(dirs)
     locked = {j["task_id"] for j in jobs if j["status"] in ("pending", "running")}
 
     marking: dict[str, list[str]] = {}
@@ -267,12 +293,7 @@ def get_enabled_transitions(
     return result
 
 
-def create_task(
-    dirs: ProjectDirs,
-    task_id: str,
-    file: str,
-    goal: str,
-) -> dict:
+def create_task(dirs: ProjectDirs, task_id: str, file: str, goal: str) -> dict:
     """
     Add a task to BACKLOG.
     Idempotent: returns the existing task unchanged if task_id already exists.
@@ -284,22 +305,22 @@ def create_task(
         return existing
 
     task: dict = {
-        "task_id": task_id,
-        "file": file,
-        "goal": goal,
-        "place": "BACKLOG",
-        "attempt": 0,
-        "status": "pending",
+        "task_id":    task_id,
+        "file":       file,
+        "goal":       goal,
+        "place":      "BACKLOG",
+        "attempt":    0,
+        "status":     "pending",
         "created_at": _now(),
     }
     tasks.append(task)
     _save_tasks(dirs, tasks)
     _update_marking_md(dirs, tasks)
     _emit(dirs, {
-        "type": "task_created",
-        "task_id": task_id,
+        "type":     "task_created",
+        "task_id":  task_id,
         "to_place": "BACKLOG",
-        "source": "bridge",
+        "source":   "bridge",
     })
     return task
 
@@ -338,7 +359,7 @@ def fire_transition(
             f"but {task_id!r} is in {task['place']!r}"
         )
 
-    # Idempotent: already in target place, nothing to do
+    # Idempotent: already in target place
     if task["place"] == tr["to"]:
         return task
 
@@ -358,19 +379,125 @@ def fire_transition(
     _save_tasks(dirs, tasks)
     _update_marking_md(dirs, tasks)
     _emit(dirs, {
-        "type": "transition_fired",
-        "task_id": task_id,
+        "type":       "transition_fired",
+        "task_id":    task_id,
         "transition": transition_id,
         "from_place": from_place,
-        "to_place": tr["to"],
-        "source": source,
+        "to_place":   tr["to"],
+        "source":     source,
     })
 
-    # Auto transitions hand work to an agent → create job
+    # Auto transitions hand work to an agent -> create job
     if tr["auto"] and tr.get("agent_role") and tr["agent_role"] != "human":
         _ensure_job(dirs, task, tr, jobs)
 
     return task
+
+
+def tick(dirs: ProjectDirs) -> dict:
+    """
+    Orchestrator tick: advance all tasks that can move automatically.
+
+    For each non-terminal, non-locked task:
+      auto   transition -> fire (if no duplicate pending job)
+      human  transition -> surface in waiting_for_human
+      tool   transition -> surface in tool_ready (no shell execution)
+      agent  transition -> skip (agent fires when done)
+      locked task       -> blocked
+
+    Idempotent: repeated ticks don't create duplicate jobs or double-fire.
+
+    Returns:
+      {fired, jobs_created, waiting_for_human, tool_ready, blocked}
+    """
+    dirs.ensure()
+    tasks = _load_tasks(dirs)
+    jobs  = _load_jobs(dirs)
+    locked = {j["task_id"] for j in jobs if j["status"] in ("pending", "running")}
+
+    summary: dict = {
+        "fired":             [],
+        "jobs_created":      [],
+        "waiting_for_human": [],
+        "tool_ready":        [],
+        "blocked":           [],
+    }
+
+    for task in tasks:
+        tid = task["task_id"]
+
+        if task["place"] in _TERMINAL_PLACES:
+            continue
+
+        if tid in locked:
+            summary["blocked"].append({"task_id": tid, "reason": "active job"})
+            continue
+
+        trs_here = [tr for tr in TRANSITIONS if task["place"] in tr["from"]]
+        fired_this_task = False
+
+        for tr in trs_here:
+            if fired_this_task:
+                break
+
+            kind = _transition_kind(tr)
+
+            if kind == "human":
+                summary["waiting_for_human"].append({
+                    "task_id":    tid,
+                    "transition": tr["id"],
+                    "place":      task["place"],
+                })
+
+            elif kind == "tool":
+                summary["tool_ready"].append({
+                    "task_id":    tid,
+                    "transition": tr["id"],
+                })
+
+            elif kind == "auto":
+                # Idempotency: skip if pending/running job already covers this
+                output_tr = _next_non_auto_transition(tr["to"], tr.get("agent_role", ""))
+                t_to_fire = output_tr or tr["id"]
+                dup = next(
+                    (j for j in jobs
+                     if j["task_id"] == tid
+                     and j.get("transition_to_fire") == t_to_fire
+                     and j["status"] in ("pending", "running")),
+                    None,
+                )
+                if dup:
+                    summary["blocked"].append({
+                        "task_id": tid,
+                        "reason":  f"job {dup['job_id'][:8]} pending for {t_to_fire}",
+                    })
+                    fired_this_task = True  # don't try other trs for this task
+                    continue
+
+                try:
+                    fired_task = fire_transition(dirs, tid, tr["id"], source="tick")
+                    summary["fired"].append({
+                        "task_id":    tid,
+                        "transition": tr["id"],
+                        "to_place":   fired_task["place"],
+                    })
+                    fired_this_task = True
+                    # Capture new jobs
+                    fresh_jobs = _load_jobs(dirs)
+                    known = {j2 for j2 in summary["jobs_created"]}
+                    for j in fresh_jobs:
+                        if (j["task_id"] == tid
+                                and j["status"] == "pending"
+                                and j["job_id"] not in known):
+                            summary["jobs_created"].append(j["job_id"])
+
+                except ValueError as exc:
+                    summary["blocked"].append({"task_id": tid, "reason": str(exc)})
+                    fired_this_task = True
+
+            # "agent" kind: not tick's job — agent fires when done
+
+    return summary
 
 
 def get_jobs(dirs: ProjectDirs) -> list[dict]:
@@ -397,21 +524,21 @@ def complete_agent_job(
     if job["status"] == "failed":
         raise ValueError(f"Job {job_id!r} already failed — cannot complete")
 
-    job["status"] = "done"
+    job["status"]       = "done"
     job["completed_at"] = _now()
-    job["result"] = result or {}
+    job["result"]       = result or {}
     _save_jobs(dirs, jobs)
 
     _emit(dirs, {
-        "type": "job_completed",
-        "job_id": job_id,
-        "task_id": job["task_id"],
-        "agent_role": job["agent_role"],
+        "type":              "job_completed",
+        "job_id":            job_id,
+        "task_id":           job["task_id"],
+        "agent_role":        job["agent_role"],
         "transition_to_fire": job["transition_to_fire"],
-        "source": "bridge",
+        "source":            "bridge",
     })
 
-    # Job is now saved as "done", so fire_transition lock check passes
+    # Job is now "done" -> lock check in fire_transition passes
     fire_transition(dirs, job["task_id"], job["transition_to_fire"], source="bridge")
     return job
 
@@ -429,17 +556,17 @@ def fail_agent_job(dirs: ProjectDirs, job_id: str, reason: str) -> dict:
     if job["status"] == "failed":
         return job
 
-    job["status"] = "failed"
+    job["status"]       = "failed"
     job["completed_at"] = _now()
-    job["result"] = {"error": reason}
+    job["result"]       = {"error": reason}
     _save_jobs(dirs, jobs)
     _emit(dirs, {
-        "type": "job_failed",
-        "job_id": job_id,
-        "task_id": job["task_id"],
+        "type":       "job_failed",
+        "job_id":     job_id,
+        "task_id":    job["task_id"],
         "agent_role": job["agent_role"],
-        "reason": reason,
-        "source": "bridge",
+        "reason":     reason,
+        "source":     "bridge",
     })
     return job
 
@@ -450,16 +577,16 @@ def _cli() -> None:
     parser = argparse.ArgumentParser(
         description="Renew Orchestrator — orchestration kernel CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
     )
-    parser.add_argument("--project-dir", required=True, metavar="PATH",
-                        help="Absolute path to the target project")
+    parser.add_argument("--project-dir", required=True, metavar="PATH")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("marking", help="Print current Petri-net marking")
+    sub.add_parser("marking",  help="Show current Petri-net marking")
+    sub.add_parser("tick",     help="Run orchestrator tick (auto-fire enabled transitions)")
+    sub.add_parser("jobs",     help="List all jobs")
 
     p_en = sub.add_parser("enabled", help="List enabled transitions")
-    p_en.add_argument("task_id", nargs="?", help="Filter by task ID")
+    p_en.add_argument("task_id", nargs="?")
 
     p_fire = sub.add_parser("fire", help="Fire a transition")
     p_fire.add_argument("task_id")
@@ -467,10 +594,8 @@ def _cli() -> None:
 
     p_add = sub.add_parser("add-task", help="Add task to BACKLOG")
     p_add.add_argument("task_id")
-    p_add.add_argument("file", help="Relative file path")
-    p_add.add_argument("goal", help="Refactoring goal")
-
-    sub.add_parser("jobs", help="List all jobs")
+    p_add.add_argument("file")
+    p_add.add_argument("goal")
 
     p_done = sub.add_parser("complete-job", help="Mark job done and fire its transition")
     p_done.add_argument("job_id")
@@ -488,14 +613,18 @@ def _cli() -> None:
             non_empty = {p: t for p, t in marking.items() if t}
             print(json.dumps(non_empty, indent=2))
 
+        elif args.cmd == "tick":
+            result = tick(dirs)
+            print(json.dumps(result, indent=2))
+
         elif args.cmd == "enabled":
             enabled = get_enabled_transitions(dirs, getattr(args, "task_id", None))
             if not enabled:
                 print("(no enabled transitions)")
             for e in enabled:
+                kind = _transition_kind(e)
                 tasks_str = ", ".join(e["eligible_tasks"])
-                auto = "auto" if e["auto"] else "manual"
-                print(f"  {e['id']:25s}  [{auto}]  tasks: {tasks_str}")
+                print(f"  {e['id']:25s}  [{kind:5s}]  tasks: {tasks_str}")
 
         elif args.cmd == "fire":
             task = fire_transition(dirs, args.task_id, args.transition_id, source="cli")
@@ -510,16 +639,17 @@ def _cli() -> None:
             if not jobs:
                 print("(no jobs)")
             for j in jobs:
+                tr_col = j.get("transition", "?")
                 print(f"  {j['job_id'][:8]}  {j['status']:10s}  {j['task_id']:15s}  "
-                      f"{j['agent_role']:8s}  -> {j['transition_to_fire']}")
+                      f"{j['agent_role']:8s}  via:{tr_col}  fire:{j['transition_to_fire']}")
 
         elif args.cmd == "complete-job":
             job = complete_agent_job(dirs, args.job_id)
-            print(f"OK  {args.job_id[:8]}  →  done, fired {job['transition_to_fire']}")
+            print(f"OK  {args.job_id[:8]}  done, fired {job['transition_to_fire']}")
 
         elif args.cmd == "fail-job":
             job = fail_agent_job(dirs, args.job_id, args.reason)
-            print(f"OK  {args.job_id[:8]}  →  failed: {args.reason}")
+            print(f"OK  {args.job_id[:8]}  failed: {args.reason}")
 
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
