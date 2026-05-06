@@ -57,6 +57,10 @@ export interface NetDefinition {
   transitions: NetTransition[]
 }
 
+export interface EnabledTransition extends NetTransition {
+  eligible_tasks: string[]
+}
+
 export interface OrchestratorState {
   tasks: Task[]
   marking: Record<string, string[]>
