@@ -1,0 +1,95 @@
+[
+  {
+    "object_type": "job",
+    "schema_version": "1.0",
+    "job_id": "1eaa26ad-c048-477f-8705-290dcb570882",
+    "task_id": "00-1",
+    "agent_role": "analyst",
+    "transition": "claim_analysis",
+    "transition_to_fire": "analysis_finished",
+    "instructions": "Analyze `pupupu` -> pupupu",
+    "status": "done",
+    "created_at": "2026-05-07T14:24:30.113749+00:00",
+    "started_at": null,
+    "completed_at": "2026-05-07T14:24:36.744580+00:00",
+    "result": {
+      "summary": "Ручной smoke-тест завершён. Код проекта не изменялся.",
+      "risk": "low",
+      "next": "human approval"
+    }
+  },
+  {
+    "object_type": "job",
+    "schema_version": "1.0",
+    "job_id": "8f7c6f7e-639d-4aac-89fa-ce206f3d3267",
+    "task_id": "00-1",
+    "agent_role": "coder",
+    "transition": "approve_plan",
+    "transition_to_fire": "patch_created",
+    "instructions": "Create a patch for `pupupu` addressing: pupupu",
+    "status": "done",
+    "created_at": "2026-05-07T14:24:55.675261+00:00",
+    "started_at": null,
+    "completed_at": "2026-05-07T14:25:02.900503+00:00",
+    "result": {
+      "summary": "Ручной smoke-тест завершён. Код проекта не изменялся.",
+      "risk": "low",
+      "next": "human approval"
+    }
+  },
+  {
+    "object_type": "job",
+    "schema_version": "1.0",
+    "job_id": "fa12a438-a9f0-4b3c-9847-73e418177e51",
+    "task_id": "00-1",
+    "agent_role": "tester",
+    "transition": "start_testing",
+    "transition_to_fire": "tests_passed",
+    "instructions": "Test `pupupu` -> verify: pupupu",
+    "status": "failed",
+    "created_at": "2026-05-07T14:25:06.468093+00:00",
+    "started_at": null,
+    "completed_at": "2026-05-07T14:25:14.222363+00:00",
+    "result": {
+      "error": "Ручной smoke-test failure"
+    }
+  },
+  {
+    "object_type": "job",
+    "schema_version": "1.0",
+    "job_id": "317b895b-f50c-4700-b2fc-947c96b69127",
+    "task_id": "00-1",
+    "agent_role": "coder",
+    "transition": "approve_plan",
+    "transition_to_fire": "patch_created",
+    "instructions": "Create a patch for `pupupu` addressing: pupupu",
+    "status": "done",
+    "created_at": "2026-05-07T14:25:33.730984+00:00",
+    "started_at": null,
+    "completed_at": "2026-05-07T14:25:35.917085+00:00",
+    "result": {
+      "summary": "Ручной smoke-тест завершён. Код проекта не изменялся.",
+      "risk": "low",
+      "next": "human approval"
+    }
+  },
+  {
+    "object_type": "job",
+    "schema_version": "1.0",
+    "job_id": "3ef462b8-86dc-44fa-aa7c-1ec24954603a",
+    "task_id": "00-1",
+    "agent_role": "tester",
+    "transition": "start_testing",
+    "transition_to_fire": "tests_passed",
+    "instructions": "Test `pupupu` -> verify: pupupu",
+    "status": "done",
+    "created_at": "2026-05-07T14:25:38.392652+00:00",
+    "started_at": null,
+    "completed_at": "2026-05-07T14:25:40.702444+00:00",
+    "result": {
+      "summary": "Ручной smoke-тест завершён. Код проекта не изменялся.",
+      "risk": "low",
+      "next": "human approval"
+    }
+  }
+]

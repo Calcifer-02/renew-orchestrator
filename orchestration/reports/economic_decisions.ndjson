@@ -1,0 +1,5 @@
+{"decision_type": "budget_spent", "amount": 2.0, "reason": "job_completed", "task_id": "00-1", "job_id": "1eaa26ad-c048-477f-8705-290dcb570882", "remaining": 998.0, "ts": "2026-05-07T14:24:36.760999+00:00"}
+{"decision_type": "budget_spent", "amount": 5.0, "reason": "job_completed", "task_id": "00-1", "job_id": "8f7c6f7e-639d-4aac-89fa-ce206f3d3267", "remaining": 993.0, "ts": "2026-05-07T14:25:02.919495+00:00"}
+{"decision_type": "budget_spent", "amount": 1.0, "reason": "job_failed", "task_id": "00-1", "job_id": "fa12a438-a9f0-4b3c-9847-73e418177e51", "remaining": 992.0, "ts": "2026-05-07T14:25:14.229685+00:00"}
+{"decision_type": "budget_spent", "amount": 5.0, "reason": "job_completed", "task_id": "00-1", "job_id": "317b895b-f50c-4700-b2fc-947c96b69127", "remaining": 987.0, "ts": "2026-05-07T14:25:35.934396+00:00"}
+{"decision_type": "budget_spent", "amount": 2.0, "reason": "job_completed", "task_id": "00-1", "job_id": "3ef462b8-86dc-44fa-aa7c-1ec24954603a", "remaining": 985.0, "ts": "2026-05-07T14:25:40.741421+00:00"}

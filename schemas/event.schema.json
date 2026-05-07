@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "renew-orchestrator/event.schema.json",
+  "title": "Event",
+  "description": "A versioned event emitted to the event log (events.ndjson)",
+  "type": "object",
+  "required": ["event_id", "event_version", "type", "task_id", "ts"],
+  "additionalProperties": true,
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_version": { "type": "string", "pattern": "^\\d+\\.\\d+$" },
+    "type": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "ts": { "type": "string", "format": "date-time" },
+    "transition": { "type": "string" },
+    "from_place": { "type": "string" },
+    "to_place": { "type": "string" },
+    "job_id": { "type": "string", "format": "uuid" },
+    "agent_role": { "type": "string" },
+    "reason": { "type": "string" },
+    "resources": { "type": "array", "items": { "type": "string" } }
+  }
+}

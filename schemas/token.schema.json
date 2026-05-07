@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "renew-orchestrator/token.schema.json",
+  "title": "Token",
+  "description": "A task token flowing through the Petri net",
+  "type": "object",
+  "required": ["object_type", "schema_version", "task_id", "file", "goal", "place", "attempt", "created_at"],
+  "additionalProperties": true,
+  "properties": {
+    "object_type": { "const": "token" },
+    "schema_version": { "type": "string", "pattern": "^\\d+\\.\\d+$" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "file": { "type": "string", "minLength": 1 },
+    "goal": { "type": "string", "minLength": 1 },
+    "place": { "type": "string", "minLength": 1 },
+    "attempt": { "type": "integer", "minimum": 0 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "place_entered_at": { "type": ["string", "null"], "format": "date-time" },
+    "type": { "type": "string", "enum": ["refactor", "bugfix", "feature", "chore"] },
+    "risk": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "autonomy": { "type": "string", "enum": ["supervised", "autonomous", "semi-autonomous"] },
+    "initial_place": { "type": "string" },
+    "approval_metadata": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["approved_at", "approved_by"],
+          "properties": {
+            "approved_at": { "type": "string", "format": "date-time" },
+            "approved_by": { "type": "string" },
+            "notes": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "human_review_context": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["entered_at", "reason_transition"],
+          "properties": {
+            "entered_at": { "type": "string", "format": "date-time" },
+            "reason_transition": { "type": "string" },
+            "notes": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "artifact.schema.json" }
+    }
+  }
+}

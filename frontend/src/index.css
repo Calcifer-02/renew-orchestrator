@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #010212;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  /* Ambient nebula glow */
+  background-image:
+    radial-gradient(ellipse 70% 45% at 15% 10%, rgba(6, 120, 220, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 85% 90%, rgba(120, 30, 210, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 30% at 50% 50%, rgba(0, 200, 200, 0.03) 0%, transparent 70%);
+}
+
+/* React Flow dark overrides */
+.react-flow__renderer {
+  background: transparent !important;
+}
+
+.react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+.react-flow__controls-button {
+  background: #0f1729 !important;
+  border-color: #1e3a5f !important;
+  fill: #64748b !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #1e293b !important;
+  fill: #94a3b8 !important;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(1, 2, 18, 0.7) !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e3a5f;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2d4f7a;
+}
+
+/* Keyframes */
+@keyframes outerGlow {
+  0%, 100% { opacity: 0.6; transform: scale(1.2); }
+  50%       { opacity: 1;   transform: scale(1.35); }
+}
+
+@keyframes tokenPulse {
+  0%, 100% { box-shadow: 0 0 6px currentColor, 0 0 10px currentColor; }
+  50%       { box-shadow: 0 0 12px currentColor, 0 0 22px currentColor, 0 0 32px currentColor; }
+}
+
+@keyframes transitionGlow {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+@keyframes edgeFlow {
+  from { stroke-dashoffset: 20; }
+  to   { stroke-dashoffset: 0; }
+}
+
+@keyframes transitionFire {
+  0%   { opacity: 0.95; transform: scale(1.4); }
+  35%  { opacity: 0.7;  transform: scale(1.8); }
+  100% { opacity: 0;    transform: scale(2.4); }
+}
+
+/* Scan line overlay (subtle, decorative) */
+.scan-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    0deg,
+    transparent 0%,
+    rgba(6, 182, 212, 0.015) 50%,
+    transparent 100%
+  );
+  background-size: 100% 4px;
+  pointer-events: none;
+  z-index: 0;
+}

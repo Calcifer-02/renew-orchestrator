@@ -1,0 +1,27 @@
+{
+  "tasks": [
+    {
+      "object_type": "token",
+      "schema_version": "1.0",
+      "task_id": "00-1",
+      "file": "pupupu",
+      "goal": "pupupu",
+      "place": "DONE",
+      "attempt": 2,
+      "status": "pending",
+      "created_at": "2026-05-07T14:24:21.622390+00:00",
+      "place_entered_at": "2026-05-07T14:25:40.733889+00:00",
+      "approval_metadata": {
+        "approved_at": "2026-05-07T14:25:33.724209+00:00",
+        "approved_by": "human",
+        "transition": "approve_plan"
+      },
+      "human_review_context": {
+        "escalated_at": "2026-05-07T14:25:20.856352+00:00",
+        "escalated_via": "escalate",
+        "escalated_by": "human"
+      },
+      "artifacts": []
+    }
+  ]
+}

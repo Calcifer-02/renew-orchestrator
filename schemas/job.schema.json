@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "renew-orchestrator/job.schema.json",
+  "title": "Job",
+  "description": "An agent job created when a transition fires",
+  "type": "object",
+  "required": ["object_type", "schema_version", "job_id", "task_id", "agent_role", "transition_to_fire", "instructions", "status", "created_at"],
+  "additionalProperties": true,
+  "properties": {
+    "object_type": { "const": "job" },
+    "schema_version": { "type": "string", "pattern": "^\\d+\\.\\d+$" },
+    "job_id": { "type": "string", "format": "uuid" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "agent_role": { "type": "string", "minLength": 1 },
+    "transition_to_fire": { "type": "string", "minLength": 1 },
+    "instructions": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["pending", "running", "done", "failed"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "started_at": { "type": ["string", "null"], "format": "date-time" },
+    "completed_at": { "type": ["string", "null"], "format": "date-time" },
+    "result": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "summary": { "type": "string" },
+            "risk":    { "type": "string" },
+            "next":    { "type": "string" }
+          }
+        }
+      ]
+    },
+    "fail_reason": { "type": ["string", "null"] },
+    "resources": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
