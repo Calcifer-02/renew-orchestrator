@@ -1,0 +1,136 @@
+{
+  "object_type": "workflow",
+  "schema_version": "1.0",
+  "workflow_id": "refactor-v1",
+  "name": "Supervised Refactor",
+  "description": "Human-supervised refactor workflow with analysis, coding, testing, and review stages",
+  "places": [
+    "BACKLOG",
+    "READY_FOR_ANALYSIS",
+    "ANALYZED",
+    "READY_FOR_PATCH",
+    "PATCH_CREATED",
+    "TESTING",
+    "DONE",
+    "FAILED",
+    "HUMAN_REVIEW",
+    "REVIEW_TIMEOUT"
+  ],
+  "transitions": [
+    {
+      "id": "claim_analysis",
+      "from": ["BACKLOG"],
+      "to": "READY_FOR_ANALYSIS",
+      "auto": true,
+      "agent_role": "analyst",
+      "description": "Analyst picks up a backlog task for analysis"
+    },
+    {
+      "id": "analysis_finished",
+      "from": ["READY_FOR_ANALYSIS"],
+      "to": "ANALYZED",
+      "auto": false,
+      "agent_role": "analyst",
+      "description": "Analyst completes analysis and produces a plan"
+    },
+    {
+      "id": "approve_plan",
+      "from": ["ANALYZED"],
+      "to": "READY_FOR_PATCH",
+      "auto": false,
+      "agent_role": "coder",
+      "kind": "human",
+      "description": "Human approves the analysis plan and a coder job is created"
+    },
+    {
+      "id": "escalate_review",
+      "from": ["ANALYZED"],
+      "to": "HUMAN_REVIEW",
+      "auto": false,
+      "agent_role": "human",
+      "kind": "human",
+      "description": "Human escalates the task for manual review instead of approving"
+    },
+    {
+      "id": "patch_created",
+      "from": ["READY_FOR_PATCH"],
+      "to": "PATCH_CREATED",
+      "auto": false,
+      "agent_role": "coder",
+      "description": "Coder agent delivers the patch"
+    },
+    {
+      "id": "start_testing",
+      "from": ["PATCH_CREATED"],
+      "to": "TESTING",
+      "auto": true,
+      "agent_role": "tester",
+      "description": "Tester agent automatically picks up the patch"
+    },
+    {
+      "id": "tests_passed",
+      "from": ["TESTING"],
+      "to": "DONE",
+      "auto": false,
+      "agent_role": "tester",
+      "description": "All tests pass; task is complete"
+    },
+    {
+      "id": "tests_failed",
+      "from": ["TESTING"],
+      "to": "FAILED",
+      "auto": false,
+      "agent_role": "tester",
+      "description": "Tests failed; task enters failed state"
+    },
+    {
+      "id": "retry",
+      "from": ["FAILED"],
+      "to": "READY_FOR_ANALYSIS",
+      "auto": true,
+      "agent_role": "analyst",
+      "description": "Automatically retry a failed task from analysis"
+    },
+    {
+      "id": "escalate",
+      "from": ["TESTING", "FAILED"],
+      "to": "HUMAN_REVIEW",
+      "auto": false,
+      "agent_role": "human",
+      "kind": "human",
+      "description": "Escalate a stuck or failed task to human review"
+    },
+    {
+      "id": "reopen",
+      "from": ["HUMAN_REVIEW"],
+      "to": "READY_FOR_ANALYSIS",
+      "auto": false,
+      "agent_role": "human",
+      "kind": "human",
+      "description": "Human re-opens the task for another analysis cycle"
+    },
+    {
+      "id": "close_wontfix",
+      "from": ["HUMAN_REVIEW"],
+      "to": "FAILED",
+      "auto": false,
+      "agent_role": "human",
+      "kind": "human",
+      "description": "Human closes the task as won't-fix"
+    },
+    {
+      "id": "review_timeout",
+      "from": ["HUMAN_REVIEW"],
+      "to": "REVIEW_TIMEOUT",
+      "auto": false,
+      "agent_role": "system",
+      "kind": "system",
+      "description": "System fires when a HUMAN_REVIEW task exceeds the timeout threshold"
+    }
+  ],
+  "initial_place": "BACKLOG",
+  "terminal_places": ["DONE", "REVIEW_TIMEOUT"],
+  "max_attempts": 3,
+  "default_autonomy": "supervised",
+  "created_at": "2026-05-07T00:00:00Z"
+}

@@ -26,18 +26,23 @@ const PLACE_POS: Record<string, { x: number; y: number }> = {
   DONE:               { x: 1720, y: 150 },
   FAILED:             { x: 1450, y: 420 },
   HUMAN_REVIEW:       { x: 1720, y: 420 },
+  REVIEW_TIMEOUT:     { x: 1990, y: 420 },
 }
 
 const TRANS_POS: Record<string, { x: number; y: number }> = {
   claim_analysis:    { x: 235,  y: 150 },
   analysis_finished: { x: 505,  y: 150 },
-  claim_patch:       { x: 775,  y: 150 },
+  approve_plan:      { x: 775,  y: 150 },
+  escalate_review:   { x: 775,  y: 340 },
   patch_created:     { x: 1045, y: 150 },
   start_testing:     { x: 1315, y: 150 },
   tests_passed:      { x: 1585, y: 150 },
   tests_failed:      { x: 1450, y: 285 },
   retry:             { x: 1115, y: 420 },
   escalate:          { x: 1585, y: 420 },
+  reopen:            { x: 910,  y: 570 },
+  close_wontfix:     { x: 1720, y: 570 },
+  review_timeout:    { x: 1855, y: 420 },
 }
 
 export const PLACE_COLOR: Record<string, string> = {
@@ -50,6 +55,7 @@ export const PLACE_COLOR: Record<string, string> = {
   DONE:               '#22c55e',
   FAILED:             '#ef4444',
   HUMAN_REVIEW:       '#ec4899',
+  REVIEW_TIMEOUT:     '#78716c',
 }
 
 interface Props {
@@ -114,15 +120,19 @@ export function PetriNetCanvas({
       const toColor   = PLACE_COLOR[tr.to] ?? '#64748b'
 
       const routing: Record<string, { sH: string; tH: string; type?: string }> = {
-        claim_analysis:    { sH: 'source-right', tH: 'target-left' },
-        analysis_finished: { sH: 'source-right', tH: 'target-left' },
-        claim_patch:       { sH: 'source-right', tH: 'target-left' },
-        patch_created:     { sH: 'source-right', tH: 'target-left' },
-        start_testing:     { sH: 'source-right', tH: 'target-left' },
-        tests_passed:      { sH: 'source-right', tH: 'target-left' },
+        claim_analysis:    { sH: 'source-right',  tH: 'target-left' },
+        analysis_finished: { sH: 'source-right',  tH: 'target-left' },
+        approve_plan:      { sH: 'source-right',  tH: 'target-left' },
+        escalate_review:   { sH: 'source-bottom', tH: 'target-top',   type: 'smoothstep' },
+        patch_created:     { sH: 'source-right',  tH: 'target-left' },
+        start_testing:     { sH: 'source-right',  tH: 'target-left' },
+        tests_passed:      { sH: 'source-right',  tH: 'target-left' },
         tests_failed:      { sH: 'source-bottom', tH: 'target-top' },
         escalate:          { sH: 'source-right',  tH: 'target-left' },
         retry:             { sH: 'source-left',   tH: 'target-right', type: 'smoothstep' },
+        reopen:            { sH: 'source-left',   tH: 'target-right', type: 'smoothstep' },
+        close_wontfix:     { sH: 'source-bottom', tH: 'target-top',   type: 'smoothstep' },
+        review_timeout:    { sH: 'source-right',  tH: 'target-left' },
       }
 
       tr.from.forEach((fromPlace) => {
@@ -156,8 +166,16 @@ export function PetriNetCanvas({
       // Output arc
       const outColor = isFiring ? toColor : isEnabled ? toColor : '#162035'
       const r = routing[tr.id] ?? { sH: 'source-right', tH: 'target-left' }
-      const outSH = tr.id === 'retry' ? 'source-top' : r.sH
-      const outTH = tr.id === 'retry' ? 'target-bottom' : r.tH
+      const outSH = tr.id === 'retry'          ? 'source-top'
+                  : tr.id === 'escalate_review' ? 'source-right'
+                  : tr.id === 'reopen'          ? 'source-left'
+                  : tr.id === 'close_wontfix'   ? 'source-left'
+                  : r.sH
+      const outTH = tr.id === 'retry'          ? 'target-bottom'
+                  : tr.id === 'escalate_review' ? 'target-left'
+                  : tr.id === 'reopen'          ? 'target-bottom'
+                  : tr.id === 'close_wontfix'   ? 'target-bottom'
+                  : r.tH
 
       result.push({
         id: `${tr.id}=>${tr.to}`,

@@ -8,6 +8,7 @@ export type PlaceId =
   | 'DONE'
   | 'FAILED'
   | 'HUMAN_REVIEW'
+  | 'REVIEW_TIMEOUT'
 
 export interface Task {
   task_id: string

@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "renew-orchestrator/workflow.schema.json",
+  "title": "Workflow",
+  "description": "Versioned workflow definition for the Petri-net orchestrator",
+  "type": "object",
+  "required": ["object_type", "schema_version", "workflow_id", "name", "places", "transitions", "initial_place", "terminal_places"],
+  "additionalProperties": false,
+  "properties": {
+    "object_type": { "const": "workflow" },
+    "schema_version": { "type": "string", "pattern": "^\\d+\\.\\d+$" },
+    "workflow_id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "places": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "from", "to", "auto"],
+        "additionalProperties": false,
+        "properties": {
+          "id":         { "type": "string", "minLength": 1 },
+          "from":       { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "to":         { "type": "string", "minLength": 1 },
+          "auto":       { "type": "boolean" },
+          "agent_role": { "type": "string" },
+          "kind":       { "type": "string", "enum": ["human", "agent", "auto", "system", "tool"] },
+          "description":{ "type": "string" }
+        }
+      },
+      "minItems": 1
+    },
+    "initial_place": { "type": "string", "minLength": 1 },
+    "terminal_places": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "max_attempts": { "type": "integer", "minimum": 1 },
+    "default_autonomy": { "type": "string", "enum": ["supervised", "autonomous", "semi-autonomous"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

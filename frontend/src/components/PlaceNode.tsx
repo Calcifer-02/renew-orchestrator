@@ -19,6 +19,7 @@ const PLACE_LABEL: Record<string, string> = {
   DONE:                'DONE',
   FAILED:              'FAILED',
   HUMAN_REVIEW:        'HUMAN\nREVIEW',
+  REVIEW_TIMEOUT:      'REVIEW\nTIMEOUT',
 }
 
 const SIZE = 90

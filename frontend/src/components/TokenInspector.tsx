@@ -11,6 +11,8 @@ const HUMAN_LABELS: Record<string, string> = {
   approve_plan:    'Одобрить план',
   escalate_review: 'Эскалировать',
   escalate:        'Эскалировать',
+  reopen:          'Вернуть в анализ',
+  close_wontfix:   'Закрыть (wontfix)',
   mark_done:       'Завершить',
 }
 
@@ -58,7 +60,8 @@ export function TokenInspector({ task, transitions, lockedJob, onFire, onClose }
   }
 
   const placeColor = PLACE_COLOR[task.place] ?? '#64748b'
-  const hasHumanGate = !lockedJob && transitions.some((tr) => tr.kind === 'human')
+  const visibleTransitions = transitions.filter((tr) => tr.kind !== 'system')
+  const hasHumanGate = !lockedJob && visibleTransitions.some((tr) => tr.kind === 'human')
 
   return (
     <div style={{
@@ -135,11 +138,11 @@ export function TokenInspector({ task, transitions, lockedJob, onFire, onClose }
           fontSize: 8, color: '#2d5080', fontFamily: 'JetBrains Mono',
           textTransform: 'uppercase', letterSpacing: '0.8px',
         }}>
-          Доступные переходы ({transitions.length})
+          Доступные переходы ({visibleTransitions.length})
         </span>
       </div>
 
-      {transitions.length === 0 ? (
+      {visibleTransitions.length === 0 ? (
         <div style={{ fontSize: 8.5, color: '#1e3a5f', fontFamily: 'JetBrains Mono', padding: '4px 0' }}>
           {lockedJob
             ? 'переходы заблокированы активным заданием'
@@ -147,7 +150,7 @@ export function TokenInspector({ task, transitions, lockedJob, onFire, onClose }
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          {transitions.map((tr) => {
+          {visibleTransitions.map((tr) => {
             const firing = firingId === tr.id
             const busy   = firingId !== null
             const color  = trColor(tr)

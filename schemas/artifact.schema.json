@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "renew-orchestrator/artifact.schema.json",
+  "title": "Artifact",
+  "description": "A file or data artifact produced by an agent job",
+  "type": "object",
+  "required": ["artifact_id", "kind", "path", "produced_by_job", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": { "type": "string", "format": "uuid" },
+    "kind": { "type": "string", "enum": ["patch", "report", "diff", "log", "other"] },
+    "path": { "type": "string", "minLength": 1 },
+    "produced_by_job": { "type": "string", "format": "uuid" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "size_bytes": { "type": "integer", "minimum": 0 },
+    "checksum_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "description": { "type": "string" }
+  }
+}
