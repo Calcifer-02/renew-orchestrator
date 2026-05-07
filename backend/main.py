@@ -37,6 +37,7 @@ from bridge.renew_bridge import (  # noqa: E402
     get_enabled_transitions,
     get_jobs,
     get_marking,
+    tick as run_tick_bridge,
 )
 
 # ─── Project directory ────────────────────────────────────────────────────────
@@ -97,6 +98,10 @@ class CompleteJobBody(BaseModel):
 
 class FailJobBody(BaseModel):
     reason: str
+
+
+class TickBody(BaseModel):
+    mode: str = "supervised"
 
 
 # ─── Legacy helpers (used by /api/state and SSE) ─────────────────────────────
@@ -227,6 +232,16 @@ def api_fail_job(job_id: str, body: FailJobBody) -> dict:
         return {"ok": True, "job": job}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/orchestrator/tick")
+def api_tick(body: TickBody = TickBody()) -> dict:
+    """
+    Run one orchestrator tick.
+    Fires all auto-transitions, creates agent jobs, surfaces human/tool transitions.
+    Idempotent — safe to call repeatedly.
+    """
+    return run_tick_bridge(_dirs())
 
 
 # ─── SSE ──────────────────────────────────────────────────────────────────────

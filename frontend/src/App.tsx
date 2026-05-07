@@ -4,8 +4,8 @@ import { JobQueue } from './components/JobQueue'
 import { EventLog } from './components/EventLog'
 import { CreateTokenPanel } from './components/CreateTokenPanel'
 import { TokenInspector } from './components/TokenInspector'
-import { connectSSE, fetchNet, fireTransition } from './lib/api'
-import type { NetDefinition, OrchestratorState, Task, NetTransition } from './types'
+import { connectSSE, fetchNet, fireTransition, runTick } from './lib/api'
+import type { NetDefinition, OrchestratorState, Task, NetTransition, Job, TickResult } from './types'
 
 const EMPTY: OrchestratorState = {
   tasks: [], marking: {}, jobs: [], active_jobs: [],
@@ -18,13 +18,13 @@ export default function App() {
   const [live, setLive]   = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // selected token
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-
-  // transition firing highlight — Set of transition IDs currently flashing
   const [firingTransitions, setFiringTransitions] = useState<Set<string>>(new Set())
 
-  // track last seen event timestamp to detect new transition_fired SSE events
+  const [ticking, setTicking]       = useState(false)
+  const [tickResult, setTickResult] = useState<TickResult | null>(null)
+  const [tickError, setTickError]   = useState<string | null>(null)
+
   const lastEventTsRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -40,7 +40,6 @@ export default function App() {
         setLive(true)
         setError(null)
 
-        // detect new transition_fired event → flash the transition node
         const latest = s.recent_events[0]
         if (latest && latest.ts !== lastEventTsRef.current) {
           lastEventTsRef.current = latest.ts
@@ -60,11 +59,16 @@ export default function App() {
     })
   }, [])
 
-  // Derive selected task from state (stays up to date after SSE updates)
+  // Auto-clear tick result after 8 s
+  useEffect(() => {
+    if (!tickResult) return
+    const t = setTimeout(() => setTickResult(null), 8000)
+    return () => clearTimeout(t)
+  }, [tickResult])
+
   const selectedTask: Task | null =
     selectedTaskId ? (state.tasks.find((t) => t.task_id === selectedTaskId) ?? null) : null
 
-  // Compute enabled transitions for the selected task
   const selectedTaskTransitions: NetTransition[] = selectedTask && net
     ? net.transitions.filter(
         (tr) =>
@@ -73,6 +77,12 @@ export default function App() {
       )
     : []
 
+  const lockedJob: Job | null = selectedTask
+    ? (state.jobs.find(
+        (j) => j.task_id === selectedTask.task_id && (j.status === 'pending' || j.status === 'running')
+      ) ?? null)
+    : null
+
   const handleTokenClick = useCallback((taskId: string) => {
     setSelectedTaskId((prev) => (prev === taskId ? null : taskId))
   }, [])
@@ -80,19 +90,32 @@ export default function App() {
   async function handleFire(transitionId: string) {
     if (!selectedTask) return
     await fireTransition({ task_id: selectedTask.task_id, transition_id: transitionId })
-    // SSE will push the updated state within 0.5 s
   }
 
-  const done     = state.tasks.filter((t) => t.place === 'DONE').length
-  const failed   = state.tasks.filter((t) => t.place === 'FAILED').length
-  const pending  = state.active_jobs.length
-  const enabled  = state.enabled_transitions.length
+  async function handleTick() {
+    setTicking(true)
+    setTickError(null)
+    setTickResult(null)
+    try {
+      const result = await runTick()
+      setTickResult(result)
+    } catch (e) {
+      setTickError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setTicking(false)
+    }
+  }
+
+  const done    = state.tasks.filter((t) => t.place === 'DONE').length
+  const failed  = state.tasks.filter((t) => t.place === 'FAILED').length
+  const pending = state.active_jobs.length
+  const enabled = state.enabled_transitions.length
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden select-none">
+    <div className="h-screen flex flex-col overflow-hidden">
       {/* ── Header ── */}
       <header
-        className="shrink-0 flex items-center justify-between px-5 py-2.5 border-b border-[#0e1e35]"
+        className="shrink-0 flex items-center justify-between px-5 py-2.5 border-b border-[#0e1e35] select-none"
         style={{ background: 'rgba(1,2,18,0.85)', backdropFilter: 'blur(10px)' }}
       >
         <div className="flex items-center gap-3">
@@ -112,11 +135,11 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-5 text-[10px] font-mono">
-          <Kpi label="tasks"   value={state.tasks.length} />
-          <Kpi label="done"    value={done}    color="#22c55e" />
-          <Kpi label="failed"  value={failed}  color={failed  ? '#ef4444' : undefined} />
-          <Kpi label="jobs"    value={pending} color={pending ? '#22d3ee' : undefined} />
-          <Kpi label="enabled" value={enabled} color={enabled ? '#f59e0b' : undefined} />
+          <Kpi label="задачи"   value={state.tasks.length} />
+          <Kpi label="готово"   value={done}    color="#22c55e" />
+          <Kpi label="ошибки"   value={failed}  color={failed  ? '#ef4444' : undefined} />
+          <Kpi label="задания"  value={pending} color={pending ? '#22d3ee' : undefined} />
+          <Kpi label="активны"  value={enabled} color={enabled ? '#f59e0b' : undefined} />
           <LiveDot live={live} error={error} />
         </div>
       </header>
@@ -124,7 +147,7 @@ export default function App() {
       {/* ── Body ── */}
       <div className="flex flex-1 min-h-0">
         {/* Canvas */}
-        <main className="flex-1 min-w-0 relative scan-overlay">
+        <main className="flex-1 min-w-0 relative scan-overlay select-none">
           {net ? (
             <PetriNetCanvas
               net={net}
@@ -136,7 +159,7 @@ export default function App() {
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-[11px] font-mono text-[#2d5080]">
-                {error ?? 'Connecting…'}
+                {error ?? 'Подключение…'}
               </div>
             </div>
           )}
@@ -147,21 +170,80 @@ export default function App() {
           className="shrink-0 flex flex-col border-l border-[#0e1e35] overflow-hidden"
           style={{ width: 284, background: 'rgba(1,5,15,0.92)' }}
         >
-          {/* Create token form */}
+          {/* ── Шаг оркестратора ── */}
+          <div style={{ borderBottom: '1px solid #0e1e35', padding: '8px 10px', flexShrink: 0 }}>
+            <button
+              onClick={handleTick}
+              disabled={ticking}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', gap: 6,
+                background: ticking
+                  ? '#0a1020'
+                  : 'linear-gradient(135deg,#6d28d9 0%,#4f46e5 100%)',
+                border: ticking ? '1px solid #1e1e3a' : '1px solid #7c3aed44',
+                borderRadius: 4, padding: '5px 8px',
+                cursor: ticking ? 'not-allowed' : 'pointer',
+                color: ticking ? '#2d5080' : '#ede9fe',
+                fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 700,
+                letterSpacing: '1px',
+                boxShadow: ticking ? 'none' : '0 0 14px #6d28d944',
+                transition: 'all 0.15s',
+              }}
+            >
+              <span style={{ fontSize: 11 }}>{ticking ? '⟳' : '▶'}</span>
+              {ticking ? 'Выполняется…' : 'Шаг оркестратора'}
+            </button>
+
+            {tickResult && (
+              <div style={{
+                marginTop: 6, padding: '6px 8px',
+                background: '#030a18', border: '1px solid #1e3a5f', borderRadius: 3,
+                fontFamily: 'JetBrains Mono, monospace', fontSize: 8.5,
+                display: 'flex', flexDirection: 'column', gap: 2,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <span style={{ color: '#6d28d9', fontWeight: 700, letterSpacing: '0.5px' }}>
+                    РЕЗУЛЬТАТ ШАГА
+                  </span>
+                  <button
+                    onClick={() => setTickResult(null)}
+                    style={{ background: 'none', border: 'none', color: '#2d5080', cursor: 'pointer', fontSize: 12, padding: 0, lineHeight: 1 }}
+                  >×</button>
+                </div>
+                <TickRow label="Выполнено переходов" value={tickResult.fired.length} color="#22c55e" />
+                <TickRow label="Создано заданий"     value={tickResult.jobs_created.length} color="#22d3ee" />
+                <TickRow label="Ожидает человека"    value={tickResult.waiting_for_human.length} color="#ec4899" />
+                <TickRow label="Заблокировано"       value={tickResult.blocked.length} color="#ef4444" />
+                <TickRow label="Tool-переходы"       value={tickResult.tool_ready.length} color="#f59e0b" />
+              </div>
+            )}
+
+            {tickError && (
+              <div style={{
+                marginTop: 5, padding: '4px 6px',
+                background: '#1a0606', border: '1px solid #7f1d1d', borderRadius: 3,
+                fontSize: 8.5, color: '#f87171', fontFamily: 'JetBrains Mono, monospace',
+                wordBreak: 'break-word',
+              }}>
+                {tickError}
+              </div>
+            )}
+          </div>
+
+          {/* ── Создать токен ── */}
           <CreateTokenPanel />
 
-          {/* Selected token inspector */}
-          {selectedTask && (
+          {/* ── Инспектор токена ── */}
+          {selectedTask ? (
             <TokenInspector
               task={selectedTask}
               transitions={selectedTaskTransitions}
+              lockedJob={lockedJob}
               onFire={handleFire}
               onClose={() => setSelectedTaskId(null)}
             />
-          )}
-
-          {/* Hint when nothing is selected */}
-          {!selectedTask && (
+          ) : (
             <div style={{
               padding: '8px 12px',
               borderBottom: '1px solid #0a1628',
@@ -170,11 +252,11 @@ export default function App() {
               fontFamily: 'JetBrains Mono, monospace',
               flexShrink: 0,
             }}>
-              click a token to inspect &amp; fire transitions
+              нажмите на токен для инспекции и выполнения переходов
             </div>
           )}
 
-          {/* Jobs + Events — take remaining space */}
+          {/* ── Очередь заданий + Журнал событий ── */}
           <div className="flex flex-col flex-1 min-h-0 overflow-auto">
             <JobQueue jobs={state.active_jobs} />
             <EventLog events={state.recent_events} />
@@ -183,20 +265,20 @@ export default function App() {
       </div>
 
       {/* ── Footer ── */}
-      <footer className="shrink-0 flex items-center gap-5 px-5 py-1.5 border-t border-[#0a1628] text-[9px] font-mono text-[#1e3a5f]">
+      <footer className="shrink-0 flex items-center gap-5 px-5 py-1.5 border-t border-[#0a1628] text-[9px] font-mono text-[#1e3a5f] select-none">
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-4 rounded-sm inline-block" style={{ background: '#22d3ee' }} />
-          auto (bridge)
+          авто (bridge)
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-4 rounded-sm inline-block" style={{ background: '#fbbf24' }} />
-          manual (agent)
+          ручной (agent)
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: '#22c55e', boxShadow: '0 0 6px #22c55e' }} />
-          token (click to select)
+          токен (нажмите для выбора)
         </span>
-        <span className="ml-auto text-[#0e2035]">SSE · 0.5 s poll</span>
+        <span className="ml-auto text-[#0e2035]">SSE · 0.5 с</span>
       </footer>
     </div>
   )
@@ -215,7 +297,7 @@ function Kpi({ label, value, color = '#2d5080' }: { label: string; value: number
 
 function LiveDot({ live, error }: { live: boolean; error: string | null }) {
   const color = error ? '#ef4444' : live ? '#22c55e' : '#f59e0b'
-  const label = error ? 'disconnected' : live ? 'live' : 'connecting'
+  const label = error ? 'отключено' : live ? 'онлайн' : 'подключение'
   return (
     <span className="flex items-center gap-1.5">
       <span
@@ -224,5 +306,19 @@ function LiveDot({ live, error }: { live: boolean; error: string | null }) {
       />
       <span style={{ color: '#2d5080' }}>{label}</span>
     </span>
+  )
+}
+
+function TickRow({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <span style={{ color: '#2d5080' }}>{label}</span>
+      <span style={{
+        color: value > 0 ? color : '#1e3a5f',
+        fontWeight: 700,
+        textShadow: value > 0 ? `0 0 6px ${color}88` : 'none',
+        minWidth: 16, textAlign: 'right',
+      }}>{value}</span>
+    </div>
   )
 }

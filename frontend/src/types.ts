@@ -62,6 +62,14 @@ export interface EnabledTransition extends NetTransition {
   eligible_tasks: string[]
 }
 
+export interface TickResult {
+  fired: Array<{ task_id: string; transition: string; to_place: string }>
+  jobs_created: string[]
+  waiting_for_human: Array<{ task_id: string; transition: string; place: string }>
+  tool_ready: Array<{ task_id: string; transition: string }>
+  blocked: Array<{ task_id: string; reason: string }>
+}
+
 export interface OrchestratorState {
   tasks: Task[]
   marking: Record<string, string[]>

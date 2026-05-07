@@ -66,9 +66,9 @@ _TR: dict[str, dict] = {t["id"]: t for t in TRANSITIONS}
 _TERMINAL_PLACES = {"DONE", "HUMAN_REVIEW"}
 
 _INSTRUCTIONS: dict[str, str] = {
-    "analyst": "Analyze `{file}` — {goal}",
+    "analyst": "Analyze `{file}` -> {goal}",
     "coder":   "Create a patch for `{file}` addressing: {goal}",
-    "tester":  "Test `{file}` — verify: {goal}",
+    "tester":  "Test `{file}` -> verify: {goal}",
     "human":   "(manual review required for `{file}`)",
 }
 
