@@ -39,6 +39,17 @@ from bridge.renew_bridge import (  # noqa: E402
     get_marking,
     tick as run_tick_bridge,
 )
+from bridge.economics import (  # noqa: E402
+    BASE_PRICES,
+    all_scores,
+    explain_priority,
+    get_budget,
+    get_economic_log,
+    get_next_job,
+    get_next_task,
+    set_budget,
+    spend_budget,
+)
 
 # ─── Project directory ────────────────────────────────────────────────────────
 
@@ -102,6 +113,10 @@ class FailJobBody(BaseModel):
 
 class TickBody(BaseModel):
     mode: str = "supervised"
+
+
+class SetBudgetBody(BaseModel):
+    total: float
 
 
 # ─── Legacy helpers (used by /api/state and SSE) ─────────────────────────────
@@ -215,10 +230,14 @@ def api_fire_transition(body: FireTransitionBody) -> dict:
 def api_complete_job(job_id: str, body: CompleteJobBody = CompleteJobBody()) -> dict:
     """
     Mark a job done and fire its transition_to_fire.
-    Idempotent if job already done.
+    Debits budget by BASE_PRICES[agent_role]. Idempotent if already done.
     """
     try:
-        job = complete_agent_job(_dirs(), job_id, body.result)
+        dirs = _dirs()
+        job  = complete_agent_job(dirs, job_id, body.result)
+        cost = BASE_PRICES.get(job.get("agent_role", ""), 0.0)
+        if cost > 0:
+            spend_budget(dirs, cost, "job_completed", task_id=job["task_id"], job_id=job_id)
         return {"ok": True, "job": job}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -226,9 +245,13 @@ def api_complete_job(job_id: str, body: CompleteJobBody = CompleteJobBody()) -> 
 
 @app.post("/api/jobs/{job_id}/fail")
 def api_fail_job(job_id: str, body: FailJobBody) -> dict:
-    """Mark a job failed. Idempotent if already failed."""
+    """Mark a job failed. Debits half cost (partial work). Idempotent if already failed."""
     try:
-        job = fail_agent_job(_dirs(), job_id, body.reason)
+        dirs = _dirs()
+        job  = fail_agent_job(dirs, job_id, body.reason)
+        cost = BASE_PRICES.get(job.get("agent_role", ""), 0.0) * 0.5
+        if cost > 0:
+            spend_budget(dirs, cost, "job_failed", task_id=job["task_id"], job_id=job_id)
         return {"ok": True, "job": job}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -242,6 +265,58 @@ def api_tick(body: TickBody = TickBody()) -> dict:
     Idempotent — safe to call repeatedly.
     """
     return run_tick_bridge(_dirs())
+
+
+# ─── Economics routes ─────────────────────────────────────────────────────────
+
+@app.get("/api/economy/next-task")
+def api_next_task() -> dict:
+    """Highest economic_score task with available work. Returns null if none."""
+    result = get_next_task(_dirs())
+    return result if result is not None else {}
+
+
+@app.get("/api/economy/next-job")
+def api_next_job() -> dict:
+    """Highest-priority pending job by task economic_score. Returns null if none."""
+    result = get_next_job(_dirs())
+    return result if result is not None else {}
+
+
+@app.get("/api/economy/scores")
+def api_scores() -> list:
+    """Economic scores for all active (non-terminal) tasks, sorted descending."""
+    return all_scores(_dirs())
+
+
+@app.get("/api/economy/explain/{task_id}")
+def api_explain(task_id: str) -> dict:
+    """Full economic breakdown for a task: utility, cost, score, rank, budget."""
+    try:
+        return explain_priority(_dirs(), task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/api/economy/budget")
+def api_get_budget() -> dict:
+    """Current budget state: total, spent, remaining."""
+    return get_budget(_dirs())
+
+
+@app.post("/api/economy/budget")
+def api_set_budget(body: SetBudgetBody) -> dict:
+    """Set budget ceiling. Cannot reduce below already-spent amount."""
+    try:
+        return set_budget(_dirs(), body.total)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get("/api/economy/log")
+def api_econ_log(limit: int = 50) -> list:
+    """Recent economic decisions from economic_decisions.ndjson."""
+    return get_economic_log(_dirs(), limit=limit)
 
 
 # ─── SSE ──────────────────────────────────────────────────────────────────────

@@ -641,6 +641,11 @@ def tick(dirs: ProjectDirs) -> dict:
     return summary
 
 
+def get_tasks(dirs: ProjectDirs) -> list[dict]:
+    """Return all tasks (tokens). Public wrapper over _load_tasks."""
+    return _load_tasks(dirs)
+
+
 def get_jobs(dirs: ProjectDirs) -> list[dict]:
     return _load_jobs(dirs)
 
@@ -893,6 +898,22 @@ def _cli() -> None:
     p_replay = sub.add_parser("replay", help="Audit events.ndjson")
     p_replay.add_argument("--dry-run", action="store_true", default=True)
 
+    # ── Economics commands ─────────────────────────────────────────────────────
+    sub.add_parser("next-task",  help="Best task to work on next (economic score)")
+    sub.add_parser("next-job",   help="Best pending job to execute (economic score)")
+    sub.add_parser("scores",     help="Economic scores for all active tasks")
+
+    p_explain = sub.add_parser("explain", help="Explain economic priority for a task")
+    p_explain.add_argument("task_id")
+
+    sub.add_parser("budget", help="Show current budget")
+
+    p_setb = sub.add_parser("set-budget", help="Set budget ceiling")
+    p_setb.add_argument("amount", type=float)
+
+    p_econ_log = sub.add_parser("econ-log", help="Show recent economic decisions")
+    p_econ_log.add_argument("--limit", type=int, default=20)
+
     args = parser.parse_args()
     dirs = ProjectDirs(args.project_dir).ensure()
 
@@ -939,6 +960,52 @@ def _cli() -> None:
 
         elif args.cmd == "replay":
             print(json.dumps(replay(dirs, dry_run=args.dry_run), indent=2))
+
+        # ── Economics ──────────────────────────────────────────────────────────
+        elif args.cmd in ("next-task", "next-job", "scores", "explain",
+                          "budget", "set-budget", "econ-log"):
+            from bridge.economics import (  # lazy import — avoids circular at module level
+                get_next_task, get_next_job, all_scores, explain_priority,
+                get_budget, set_budget, get_economic_log,
+            )
+
+            if args.cmd == "next-task":
+                result = get_next_task(dirs)
+                if result is None:
+                    print("(no eligible tasks)")
+                else:
+                    print(json.dumps(result, indent=2))
+
+            elif args.cmd == "next-job":
+                result = get_next_job(dirs)
+                if result is None:
+                    print("(no pending jobs)")
+                else:
+                    print(json.dumps(result, indent=2))
+
+            elif args.cmd == "scores":
+                rows = all_scores(dirs)
+                if not rows:
+                    print("(no active tasks)")
+                for r in rows:
+                    print(f"  {r['task_id']:20s}  score={r['economic_score']:6.4f}  "
+                          f"u={r['utility']:5.2f}  c={r['estimated_cost']:5.2f}  [{r['place']}]")
+
+            elif args.cmd == "explain":
+                print(json.dumps(explain_priority(dirs, args.task_id), indent=2))
+
+            elif args.cmd == "budget":
+                print(json.dumps(get_budget(dirs), indent=2))
+
+            elif args.cmd == "set-budget":
+                print(json.dumps(set_budget(dirs, args.amount), indent=2))
+
+            elif args.cmd == "econ-log":
+                entries = get_economic_log(dirs, limit=args.limit)
+                if not entries:
+                    print("(no decisions logged yet)")
+                for e in entries:
+                    print(json.dumps(e))
 
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
