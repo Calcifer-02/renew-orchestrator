@@ -25,11 +25,14 @@ const DEFAULT_JSON = JSON.stringify({
   autonomy: 'supervised',
 }, null, 2)
 
+type ToastKind = 'ok' | 'err' | 'info'
+
 interface Props {
   onCreated?: (task: Task) => void
+  onToast?: (msg: string, kind: ToastKind) => void
 }
 
-export function CreateTokenPanel({ onCreated }: Props) {
+export function CreateTokenPanel({ onCreated, onToast }: Props) {
   const [open, setOpen]         = useState(false)
   const [jsonMode, setJsonMode] = useState(false)
   const [form, setForm]         = useState({ task_id: '', file: '', goal: '' })
@@ -89,9 +92,12 @@ export function CreateTokenPanel({ onCreated }: Props) {
       setForm({ task_id: '', file: '', goal: '' })
       setJsonText(DEFAULT_JSON)
       onCreated?.(task)
+      onToast?.(`Токен ${task.task_id} создан в BACKLOG`, 'ok')
       setTimeout(() => { setSuccessId(null); setOpen(false) }, 2200)
     } catch (e) {
-      setErrors([e instanceof Error ? e.message : String(e)])
+      const msg = e instanceof Error ? e.message : String(e)
+      setErrors([msg])
+      onToast?.(msg, 'err')
     } finally {
       setLoading(false)
     }

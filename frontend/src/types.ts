@@ -51,6 +51,7 @@ export interface NetTransition {
   from: string[]
   to: string
   auto: boolean
+  kind?: string   // 'human' | 'tool' | undefined
 }
 
 export interface NetDefinition {

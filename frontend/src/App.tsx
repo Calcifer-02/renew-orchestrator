@@ -7,6 +7,19 @@ import { TokenInspector } from './components/TokenInspector'
 import { connectSSE, fetchNet, fireTransition, runTick } from './lib/api'
 import type { NetDefinition, OrchestratorState, Task, NetTransition, Job, TickResult } from './types'
 
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+type ToastKind = 'ok' | 'err' | 'info'
+interface ToastItem { id: number; msg: string; kind: ToastKind }
+
+const TOAST_COLOR: Record<ToastKind, { bg: string; border: string; fg: string }> = {
+  ok:   { bg: '#0a2e1a', border: '#166534', fg: '#22c55e' },
+  err:  { bg: '#1a0606', border: '#7f1d1d', fg: '#f87171' },
+  info: { bg: '#071428', border: '#1e3a5f', fg: '#7dd3fc' },
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+
 const EMPTY: OrchestratorState = {
   tasks: [], marking: {}, jobs: [], active_jobs: [],
   recent_events: [], enabled_transitions: [], locked_tasks: [],
@@ -25,7 +38,16 @@ export default function App() {
   const [tickResult, setTickResult] = useState<TickResult | null>(null)
   const [tickError, setTickError]   = useState<string | null>(null)
 
+  const [toasts, setToasts] = useState<ToastItem[]>([])
+  const toastSeq = useRef(0)
+
   const lastEventTsRef = useRef<string | null>(null)
+
+  const addToast = useCallback((msg: string, kind: ToastKind = 'info') => {
+    const id = ++toastSeq.current
+    setToasts((prev) => [...prev, { id, msg, kind }])
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500)
+  }, [])
 
   useEffect(() => {
     fetchNet().then(setNet).catch((e: unknown) => setError(String(e)))
@@ -33,7 +55,7 @@ export default function App() {
 
   useEffect(() => {
     return connectSSE({
-      onOpen: () => { setLive(true); setError(null) },
+      onOpen:  () => { setLive(true); setError(null) },
       onError: (msg) => { setLive(false); setError(msg) },
       onState: (s) => {
         setState(s)
@@ -79,7 +101,8 @@ export default function App() {
 
   const lockedJob: Job | null = selectedTask
     ? (state.jobs.find(
-        (j) => j.task_id === selectedTask.task_id && (j.status === 'pending' || j.status === 'running')
+        (j) => j.task_id === selectedTask.task_id &&
+               (j.status === 'pending' || j.status === 'running')
       ) ?? null)
     : null
 
@@ -89,7 +112,14 @@ export default function App() {
 
   async function handleFire(transitionId: string) {
     if (!selectedTask) return
-    await fireTransition({ task_id: selectedTask.task_id, transition_id: transitionId })
+    try {
+      await fireTransition({ task_id: selectedTask.task_id, transition_id: transitionId })
+      addToast(`Переход «${transitionId.replace(/_/g, ' ')}» выполнен`, 'ok')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Ошибка перехода'
+      addToast(msg, 'err')
+      throw e
+    }
   }
 
   async function handleTick() {
@@ -99,8 +129,19 @@ export default function App() {
     try {
       const result = await runTick()
       setTickResult(result)
+      const n = result.fired.length
+      addToast(
+        n > 0
+          ? `Шаг выполнен: ${n} перех. · ${result.jobs_created.length} заданий`
+          : result.waiting_for_human.length > 0
+            ? `Ожидание человека: ${result.waiting_for_human.length} задач`
+            : 'Нет доступных авто-переходов',
+        n > 0 ? 'ok' : 'info',
+      )
     } catch (e) {
-      setTickError(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : 'Ошибка шага'
+      setTickError(msg)
+      addToast(msg, 'err')
     } finally {
       setTicking(false)
     }
@@ -113,6 +154,28 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
+      {/* ── Toasts ── */}
+      <div style={{
+        position: 'fixed', top: 56, right: 12, zIndex: 9999,
+        display: 'flex', flexDirection: 'column', gap: 5,
+        pointerEvents: 'none',
+      }}>
+        {toasts.map((t) => {
+          const c = TOAST_COLOR[t.kind]
+          return (
+            <div key={t.id} style={{
+              padding: '6px 12px', borderRadius: 4,
+              background: c.bg, border: `1px solid ${c.border}`,
+              color: c.fg, fontFamily: 'JetBrains Mono, monospace', fontSize: 10,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.6)',
+              animation: 'fadeIn 0.15s ease',
+            }}>
+              {t.msg}
+            </div>
+          )
+        })}
+      </div>
+
       {/* ── Header ── */}
       <header
         className="shrink-0 flex items-center justify-between px-5 py-2.5 border-b border-[#0e1e35] select-none"
@@ -135,11 +198,11 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-5 text-[10px] font-mono">
-          <Kpi label="задачи"   value={state.tasks.length} />
-          <Kpi label="готово"   value={done}    color="#22c55e" />
-          <Kpi label="ошибки"   value={failed}  color={failed  ? '#ef4444' : undefined} />
-          <Kpi label="задания"  value={pending} color={pending ? '#22d3ee' : undefined} />
-          <Kpi label="активны"  value={enabled} color={enabled ? '#f59e0b' : undefined} />
+          <Kpi label="задачи"  value={state.tasks.length} />
+          <Kpi label="готово"  value={done}    color="#22c55e" />
+          <Kpi label="ошибки"  value={failed}  color={failed  ? '#ef4444' : undefined} />
+          <Kpi label="задания" value={pending} color={pending ? '#22d3ee' : undefined} />
+          <Kpi label="активны" value={enabled} color={enabled ? '#f59e0b' : undefined} />
           <LiveDot live={live} error={error} />
         </div>
       </header>
@@ -186,8 +249,7 @@ export default function App() {
                 cursor: ticking ? 'not-allowed' : 'pointer',
                 color: ticking ? '#2d5080' : '#ede9fe',
                 fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 700,
-                letterSpacing: '1px',
-                boxShadow: ticking ? 'none' : '0 0 14px #6d28d944',
+                letterSpacing: '1px', boxShadow: ticking ? 'none' : '0 0 14px #6d28d944',
                 transition: 'all 0.15s',
               }}
             >
@@ -211,11 +273,11 @@ export default function App() {
                     style={{ background: 'none', border: 'none', color: '#2d5080', cursor: 'pointer', fontSize: 12, padding: 0, lineHeight: 1 }}
                   >×</button>
                 </div>
-                <TickRow label="Выполнено переходов" value={tickResult.fired.length} color="#22c55e" />
-                <TickRow label="Создано заданий"     value={tickResult.jobs_created.length} color="#22d3ee" />
-                <TickRow label="Ожидает человека"    value={tickResult.waiting_for_human.length} color="#ec4899" />
-                <TickRow label="Заблокировано"       value={tickResult.blocked.length} color="#ef4444" />
-                <TickRow label="Tool-переходы"       value={tickResult.tool_ready.length} color="#f59e0b" />
+                <TickRow label="Выполнено переходов" value={tickResult.fired.length}               color="#22c55e" />
+                <TickRow label="Создано заданий"     value={tickResult.jobs_created.length}        color="#22d3ee" />
+                <TickRow label="Ожидает человека"    value={tickResult.waiting_for_human.length}   color="#ec4899" />
+                <TickRow label="Заблокировано"       value={tickResult.blocked.length}             color="#ef4444" />
+                <TickRow label="Tool-переходы"       value={tickResult.tool_ready.length}          color="#f59e0b" />
               </div>
             )}
 
@@ -232,7 +294,7 @@ export default function App() {
           </div>
 
           {/* ── Создать токен ── */}
-          <CreateTokenPanel />
+          <CreateTokenPanel onToast={addToast} />
 
           {/* ── Инспектор токена ── */}
           {selectedTask ? (
@@ -245,12 +307,9 @@ export default function App() {
             />
           ) : (
             <div style={{
-              padding: '8px 12px',
-              borderBottom: '1px solid #0a1628',
-              fontSize: 8.5,
-              color: '#1e3a5f',
-              fontFamily: 'JetBrains Mono, monospace',
-              flexShrink: 0,
+              padding: '8px 12px', borderBottom: '1px solid #0a1628',
+              fontSize: 8.5, color: '#1e3a5f',
+              fontFamily: 'JetBrains Mono, monospace', flexShrink: 0,
             }}>
               нажмите на токен для инспекции и выполнения переходов
             </div>
@@ -258,7 +317,7 @@ export default function App() {
 
           {/* ── Очередь заданий + Журнал событий ── */}
           <div className="flex flex-col flex-1 min-h-0 overflow-auto">
-            <JobQueue jobs={state.active_jobs} />
+            <JobQueue jobs={state.active_jobs} onToast={addToast} />
             <EventLog events={state.recent_events} />
           </div>
         </aside>
@@ -271,18 +330,24 @@ export default function App() {
           авто (bridge)
         </span>
         <span className="flex items-center gap-1.5">
+          <span className="w-2 h-4 rounded-sm inline-block" style={{ background: '#ec4899' }} />
+          human gate
+        </span>
+        <span className="flex items-center gap-1.5">
           <span className="w-2 h-4 rounded-sm inline-block" style={{ background: '#fbbf24' }} />
           ручной (agent)
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: '#22c55e', boxShadow: '0 0 6px #22c55e' }} />
-          токен (нажмите для выбора)
+          токен
         </span>
         <span className="ml-auto text-[#0e2035]">SSE · 0.5 с</span>
       </footer>
     </div>
   )
 }
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function Kpi({ label, value, color = '#2d5080' }: { label: string; value: number; color?: string }) {
   return (
@@ -300,10 +365,8 @@ function LiveDot({ live, error }: { live: boolean; error: string | null }) {
   const label = error ? 'отключено' : live ? 'онлайн' : 'подключение'
   return (
     <span className="flex items-center gap-1.5">
-      <span
-        className="w-1.5 h-1.5 rounded-full"
-        style={{ background: color, boxShadow: live && !error ? `0 0 6px ${color}` : 'none' }}
-      />
+      <span className="w-1.5 h-1.5 rounded-full"
+        style={{ background: color, boxShadow: live && !error ? `0 0 6px ${color}` : 'none' }} />
       <span style={{ color: '#2d5080' }}>{label}</span>
     </span>
   )
@@ -314,8 +377,7 @@ function TickRow({ label, value, color }: { label: string; value: number; color:
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <span style={{ color: '#2d5080' }}>{label}</span>
       <span style={{
-        color: value > 0 ? color : '#1e3a5f',
-        fontWeight: 700,
+        color: value > 0 ? color : '#1e3a5f', fontWeight: 700,
         textShadow: value > 0 ? `0 0 6px ${color}88` : 'none',
         minWidth: 16, textAlign: 'right',
       }}>{value}</span>

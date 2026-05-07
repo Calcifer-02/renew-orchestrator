@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { completeJob, failJob } from '../lib/api'
 import type { Job } from '../types'
 
+type ToastKind = 'ok' | 'err' | 'info'
+
 const ROLE_COLOR: Record<string, string> = {
   analyst: '#8b5cf6',
   coder:   '#f59e0b',
@@ -9,15 +11,27 @@ const ROLE_COLOR: Record<string, string> = {
   agent:   '#64748b',
 }
 
+const STATUS_RU: Record<string, string> = {
+  pending:  'Ожидает',
+  running:  'Выполняется',
+  done:     'Завершено',
+  failed:   'Ошибка',
+}
+
 const COMPLETE_RESULT = {
   summary: 'Ручной smoke-тест завершён. Код проекта не изменялся.',
-  risk: 'low',
-  next: 'human approval',
+  risk:    'low',
+  next:    'human approval',
 }
 
 const FAIL_REASON = 'Ручной smoke-test failure'
 
-export function JobQueue({ jobs }: { jobs: Job[] }) {
+interface QueueProps {
+  jobs: Job[]
+  onToast?: (msg: string, kind: ToastKind) => void
+}
+
+export function JobQueue({ jobs, onToast }: QueueProps) {
   return (
     <section className="flex flex-col border-b border-[#0e1e35]" style={{ minHeight: 0, flex: '0 0 auto', maxHeight: '55%' }}>
       <header className="px-4 py-2 flex items-center justify-between shrink-0 border-b border-[#0e1e35]">
@@ -25,10 +39,8 @@ export function JobQueue({ jobs }: { jobs: Job[] }) {
           Очередь заданий
         </span>
         {jobs.length > 0 && (
-          <span
-            className="text-[10px] font-mono font-bold"
-            style={{ color: '#22d3ee', textShadow: '0 0 8px #22d3ee88' }}
-          >
+          <span className="text-[10px] font-mono font-bold"
+            style={{ color: '#22d3ee', textShadow: '0 0 8px #22d3ee88' }}>
             {jobs.length} активных
           </span>
         )}
@@ -39,29 +51,37 @@ export function JobQueue({ jobs }: { jobs: Job[] }) {
             — нет активных заданий —
           </p>
         ) : (
-          jobs.map((job) => <JobCard key={job.job_id} job={job} />)
+          jobs.map((job) => <JobCard key={job.job_id} job={job} onToast={onToast} />)
         )}
       </div>
     </section>
   )
 }
 
-function JobCard({ job }: { job: Job }) {
+interface CardProps {
+  job: Job
+  onToast?: (msg: string, kind: ToastKind) => void
+}
+
+function JobCard({ job, onToast }: CardProps) {
   const [completing, setCompleting] = useState(false)
   const [failing, setFailing]       = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [done, setDone]             = useState(false)
 
   const color = ROLE_COLOR[job.agent_role] ?? '#64748b'
   const busy  = completing || failing
+  // Buttons are hidden when job is already done/failed (SSE-driven)
+  const showActions = job.status === 'pending' || job.status === 'running'
 
   async function handleComplete() {
     setCompleting(true); setActionError(null)
     try {
       await completeJob(job.job_id, COMPLETE_RESULT)
-      setDone(true)
+      onToast?.(`Задание ${job.job_id.slice(0, 8)} завершено`, 'ok')
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      setActionError(msg)
+      onToast?.(msg, 'err')
     } finally {
       setCompleting(false)
     }
@@ -71,9 +91,11 @@ function JobCard({ job }: { job: Job }) {
     setFailing(true); setActionError(null)
     try {
       await failJob(job.job_id, FAIL_REASON)
-      setDone(true)
+      onToast?.(`Задание ${job.job_id.slice(0, 8)} провалено`, 'info')
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      setActionError(msg)
+      onToast?.(msg, 'err')
     } finally {
       setFailing(false)
     }
@@ -82,14 +104,12 @@ function JobCard({ job }: { job: Job }) {
   return (
     <article
       className="px-4 py-3 border-b border-[#08121e] hover:bg-[#050d1a] transition-colors"
-      style={{ borderLeft: `2px solid ${color}`, opacity: done ? 0.5 : 1 }}
+      style={{ borderLeft: `2px solid ${color}` }}
     >
       {/* Header row */}
       <div className="flex items-center justify-between mb-1.5">
-        <span
-          className="text-[9px] font-mono font-bold tracking-widest uppercase"
-          style={{ color, textShadow: `0 0 8px ${color}66` }}
-        >
+        <span className="text-[9px] font-mono font-bold tracking-widest uppercase"
+          style={{ color, textShadow: `0 0 8px ${color}66` }}>
           {job.agent_role}
         </span>
         <span className="text-[8px] font-mono text-[#1e3a5f]" style={{ userSelect: 'text' }}>
@@ -97,16 +117,14 @@ function JobCard({ job }: { job: Job }) {
         </span>
       </div>
 
-      {/* Task chip */}
-      <div className="mb-1.5">
-        <span
-          className="text-[9px] font-mono px-1.5 py-0.5 rounded"
-          style={{ background: `${color}18`, color, border: `1px solid ${color}44` }}
-        >
+      {/* Task chip + status */}
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+          style={{ background: `${color}18`, color, border: `1px solid ${color}44` }}>
           {job.task_id}
         </span>
-        <span className="text-[8px] font-mono text-[#1e3a5f] ml-2">
-          {job.status === 'pending' ? 'Ожидает' : job.status === 'running' ? 'Выполняется' : job.status === 'done' ? 'Завершено' : 'Ошибка'}
+        <span className="text-[8px] font-mono text-[#1e3a5f]">
+          {STATUS_RU[job.status] ?? job.status}
         </span>
       </div>
 
@@ -115,14 +133,14 @@ function JobCard({ job }: { job: Job }) {
         {job.instructions}
       </p>
 
-      {/* Fires arrow */}
+      {/* Fires */}
       <div className="flex items-center gap-1 text-[8px] font-mono text-[#1e3a5f] mb-2">
         <span>&#8627; fires</span>
         <span className="text-[#2d5080]">{job.transition_to_fire.replace(/_/g, ' ')}</span>
       </div>
 
-      {/* Action buttons */}
-      {!done && (
+      {/* Action buttons — only for pending/running */}
+      {showActions && (
         <div style={{ display: 'flex', gap: 4 }}>
           <button
             onClick={handleComplete}
@@ -157,9 +175,10 @@ function JobCard({ job }: { job: Job }) {
         </div>
       )}
 
-      {done && (
-        <div style={{ fontSize: 8, color: '#22c55e', fontFamily: 'JetBrains Mono', marginTop: 2 }}>
-          ✓ отправлено, ожидаем SSE…
+      {/* Loading hint after action (before SSE clears card) */}
+      {busy && (
+        <div style={{ fontSize: 8, color: '#2d5080', fontFamily: 'JetBrains Mono', marginTop: 4 }}>
+          Отправлено, ожидаем обновления…
         </div>
       )}
 

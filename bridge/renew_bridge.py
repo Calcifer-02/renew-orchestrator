@@ -52,13 +52,15 @@ PLACES: list[str] = [
 TRANSITIONS: list[dict] = [
     {"id": "claim_analysis",    "from": ["BACKLOG"],            "to": "READY_FOR_ANALYSIS", "auto": True,  "agent_role": "analyst"},
     {"id": "analysis_finished", "from": ["READY_FOR_ANALYSIS"], "to": "ANALYZED",           "auto": False, "agent_role": "analyst"},
-    {"id": "claim_patch",       "from": ["ANALYZED"],           "to": "READY_FOR_PATCH",    "auto": True,  "agent_role": "coder"},
+    # Human gate at ANALYZED: approve triggers coder job; escalate goes to review
+    {"id": "approve_plan",      "from": ["ANALYZED"],           "to": "READY_FOR_PATCH",    "auto": False, "agent_role": "coder",   "kind": "human"},
+    {"id": "escalate_review",   "from": ["ANALYZED"],           "to": "HUMAN_REVIEW",       "auto": False, "agent_role": "human",   "kind": "human"},
     {"id": "patch_created",     "from": ["READY_FOR_PATCH"],    "to": "PATCH_CREATED",      "auto": False, "agent_role": "coder"},
     {"id": "start_testing",     "from": ["PATCH_CREATED"],      "to": "TESTING",            "auto": True,  "agent_role": "tester"},
     {"id": "tests_passed",      "from": ["TESTING"],            "to": "DONE",               "auto": False, "agent_role": "tester"},
     {"id": "tests_failed",      "from": ["TESTING"],            "to": "FAILED",             "auto": False, "agent_role": "tester"},
     {"id": "retry",             "from": ["FAILED"],             "to": "READY_FOR_ANALYSIS", "auto": True,  "agent_role": "analyst"},
-    {"id": "escalate",          "from": ["TESTING", "FAILED"],  "to": "HUMAN_REVIEW",       "auto": False, "agent_role": "human"},
+    {"id": "escalate",          "from": ["TESTING", "FAILED"],  "to": "HUMAN_REVIEW",       "auto": False, "agent_role": "human",   "kind": "human"},
 ]
 
 _TR: dict[str, dict] = {t["id"]: t for t in TRANSITIONS}
@@ -183,11 +185,11 @@ def _transition_kind(tr: dict) -> str:
     """
     Classify a transition for tick processing.
       auto   — bridge fires this (auto=True, non-human)
-      human  — requires explicit human action (agent_role="human")
-      tool   — reserved for shell/test execution (tr["kind"]=="tool")
+      human  — requires explicit human action (kind="human" or agent_role="human")
+      tool   — reserved for shell/test execution (kind="tool")
       agent  — agent fires this when done (auto=False, non-human)
     """
-    if tr.get("agent_role") == "human":
+    if tr.get("kind") == "human" or tr.get("agent_role") == "human":
         return "human"
     if tr.get("kind") == "tool":
         return "tool"
@@ -387,8 +389,9 @@ def fire_transition(
         "source":     source,
     })
 
-    # Auto transitions hand work to an agent -> create job
-    if tr["auto"] and tr.get("agent_role") and tr["agent_role"] != "human":
+    # Auto and human-approved transitions hand work to an agent -> create job
+    _kind = _transition_kind(tr)
+    if _kind in ("auto", "human") and tr.get("agent_role") and tr["agent_role"] != "human":
         _ensure_job(dirs, task, tr, jobs)
 
     return task
